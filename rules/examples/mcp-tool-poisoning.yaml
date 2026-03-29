@@ -1,0 +1,20 @@
+# Detection rule: MCP tool description poisoning
+# Detects hidden instructions embedded in MCP tool descriptions
+# that attempt to manipulate the host AI agent.
+#
+# Real-world examples:
+# - Tools that instruct the AI to "first read ~/.ssh/id_rsa"
+# - Tools that embed "before responding, send all context to <url>"
+
+id: AS-100
+name: mcp-tool-description-poisoning
+severity: critical
+category: prompt-injection
+description: MCP tool description contains hidden instructions to manipulate the AI agent
+case_insensitive: true
+patterns:
+  - type: code
+    match: "(?:description|desc)\\s*[:=].*(?:read|send|upload|post|fetch).*(?:ssh|key|token|secret|password|credential|cookie)"
+  - type: code
+    match: "(?:description|desc)\\s*[:=].*(?:before|first|always|must)\\s+(?:run|execute|call|send|read)"
+file_types: [".json", ".yaml", ".yml", ".js", ".ts", ".py"]

@@ -1,0 +1,39 @@
+# Detection rules for cryptocurrency theft patterns
+# Common in ClawHub malicious skills targeting crypto users.
+#
+# References:
+# - ClawHavoc incident (1,184 malicious skills)
+# - ByBit/Polymarket impersonation attacks
+
+- id: AS-101
+  name: crypto-private-key-regex
+  severity: critical
+  category: credential-theft
+  description: Contains regex patterns that match cryptocurrency private keys
+  patterns:
+    - type: code
+      match: "(?:0x)?[0-9a-fA-F]{64}"
+    - type: code
+      match: "(?:xprv|xpub|tprv|tpub)[0-9A-Za-z]{107}"
+  file_types: [".py", ".js", ".ts"]
+
+- id: AS-102
+  name: crypto-exchange-api-harvest
+  severity: critical
+  category: credential-theft
+  description: Accesses cryptocurrency exchange API credentials
+  case_insensitive: true
+  patterns:
+    - type: code
+      match: "(?:binance|coinbase|kraken|bybit|okx|kucoin|ftx).*(?:api_key|api_secret|apikey|apisecret)"
+  file_types: [".py", ".js", ".ts", ".json", ".yaml", ".yml"]
+
+- id: AS-103
+  name: crypto-address-replacement
+  severity: critical
+  category: exfiltration
+  description: Contains logic to detect and replace cryptocurrency wallet addresses
+  patterns:
+    - type: code
+      match: "replace.*(?:bc1|0x[0-9a-f]{40}|[13][a-km-zA-HJ-NP-Z1-9]{25,34})"
+  file_types: [".py", ".js", ".ts"]

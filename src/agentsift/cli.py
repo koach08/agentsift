@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import json
+import shutil
 import sys
 import time
 from pathlib import Path
@@ -14,8 +14,13 @@ from rich.table import Table
 
 from agentsift import __version__
 from agentsift.models import Ecosystem, PackageInfo, ScanResult, Severity
+from agentsift.analyzers.metadata import MetadataAnalyzer
 from agentsift.analyzers.static import StaticAnalyzer
+from agentsift.reporters.sarif import sarif_to_json
+from agentsift.rules.engine import load_rules_dir
+from agentsift.scanners.clawhub import ClawHubScanner
 from agentsift.scanners.local import LocalScanner
+from agentsift.scanners.npm import NpmScanner
 from agentsift.scanners.registry import parse_target
 
 console = Console()
@@ -124,12 +129,20 @@ def main() -> None:
     default=None,
     help="Exit with code 1 if findings at or above this severity",
 )
+@click.option(
+    "--rules",
+    "rules_dir",
+    type=click.Path(exists=True, file_okay=False),
+    default=None,
+    help="Directory containing custom YAML detection rules",
+)
 def scan(
     target: str,
     deep: bool,
     output_format: str,
     output_file: str | None,
     fail_on: str | None,
+    rules_dir: str | None,
 ) -> None:
     """Scan an AI agent package for security issues.
 
@@ -146,44 +159,86 @@ def scan(
     # Resolve target
     ecosystem, package_name, local_path = parse_target(target)
 
+    temp_dir: Path | None = None
+    npm_package_info: dict | None = None
+    clawhub_package_info: dict | None = None
+
     if local_path:
-        scanner = LocalScanner()
         scan_dir = local_path
+    elif ecosystem in (Ecosystem.NPM, Ecosystem.MCP_NPM):
+        console.print(f"  Fetching {package_name} from npm registry...")
+        with NpmScanner() as npm:
+            temp_dir, scan_dir, version_meta, version = npm.download_and_extract(package_name)
+            npm_package_info = npm.extract_package_info(package_name, version_meta, version)
+        console.print(f"  Downloaded {package_name}@{version}")
+    elif ecosystem == Ecosystem.CLAWHUB:
+        console.print(f"  Fetching {package_name} from ClawHub registry...")
+        with ClawHubScanner() as ch:
+            temp_dir, scan_dir, meta, version = ch.download_and_extract(package_name)
+            clawhub_package_info = ch.extract_package_info(package_name, meta, version)
+            # Also parse SKILL.md for additional metadata
+            skill_meta = ch.parse_skill_md(scan_dir)
+            if skill_meta and not clawhub_package_info.get("description"):
+                clawhub_package_info["description"] = skill_meta.get("description", "")
+        console.print(f"  Downloaded {package_name}@{version}")
     else:
-        # TODO: Implement registry scanners (download + extract)
         console.print(f"[yellow]Registry scanning for {ecosystem.value} is not yet implemented.[/yellow]")
         console.print(f"[dim]For now, use a local path: agentsift scan ./path/to/plugin/[/dim]")
         sys.exit(1)
 
-    # Fetch files
-    files = scanner.collect_files(scan_dir)
-    console.print(f"  Collected {len(files)} files for analysis")
+    try:
+        # Fetch files
+        local_scanner = LocalScanner()
+        files = local_scanner.collect_files(scan_dir)
+        console.print(f"  Collected {len(files)} files for analysis")
 
-    # Run analyzers
-    analyzer = StaticAnalyzer()
-    findings = analyzer.analyze(files, scan_dir)
+        # Load custom rules if provided
+        extra_rules = None
+        if rules_dir:
+            extra_rules = load_rules_dir(Path(rules_dir))
+            console.print(f"  Loaded {len(extra_rules)} custom rules from {rules_dir}")
 
-    if deep:
-        console.print("  [yellow]Behavioral sandbox not yet implemented[/yellow]")
+        # Run static analyzer
+        static = StaticAnalyzer(extra_rules=extra_rules)
+        findings = static.analyze(files, scan_dir)
 
-    elapsed_ms = int((time.time() - start_time) * 1000)
+        # Run metadata analyzer for npm packages
+        analyzers_used = ["static"]
+        if npm_package_info:
+            meta_analyzer = MetadataAnalyzer()
+            findings.extend(meta_analyzer.analyze_npm(npm_package_info))
+            analyzers_used.append("metadata")
 
-    # Build result
-    package_info = PackageInfo(
-        name=package_name,
-        ecosystem=ecosystem,
-    )
+        if deep:
+            console.print("  [yellow]Behavioral sandbox not yet implemented[/yellow]")
 
-    result = ScanResult(
-        package=package_info,
-        findings=findings,
-        files_scanned=len(files),
-        scan_duration_ms=elapsed_ms,
-        analyzers_used=["static"],
-    )
+        elapsed_ms = int((time.time() - start_time) * 1000)
 
-    # Calculate risk score
-    result.risk_score = analyzer.calculate_risk_score(result.findings)
+        # Build result
+        pkg_info = npm_package_info or clawhub_package_info or {}
+        package_info = PackageInfo(
+            name=package_name,
+            version=pkg_info.get("version"),
+            ecosystem=ecosystem,
+            author=pkg_info.get("author"),
+            description=pkg_info.get("description"),
+        )
+
+        result = ScanResult(
+            package=package_info,
+            findings=findings,
+            files_scanned=len(files),
+            scan_duration_ms=elapsed_ms,
+            analyzers_used=analyzers_used,
+        )
+
+        # Calculate risk score
+        result.risk_score = static.calculate_risk_score(result.findings)
+
+    finally:
+        # Clean up temp directory
+        if temp_dir and temp_dir.exists():
+            shutil.rmtree(temp_dir, ignore_errors=True)
 
     # Output
     if output_format == "json":
@@ -194,7 +249,12 @@ def scan(
         else:
             click.echo(json_output)
     elif output_format == "sarif":
-        console.print("[yellow]SARIF output not yet implemented[/yellow]")
+        sarif_output = sarif_to_json(result)
+        if output_file:
+            Path(output_file).write_text(sarif_output)
+            console.print(f"  SARIF results written to {output_file}")
+        else:
+            click.echo(sarif_output)
     else:
         _render_result(result)
 
