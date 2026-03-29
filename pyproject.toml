@@ -48,9 +48,9 @@ sandbox = [
 agentsift = "agentsift.cli:main"
 
 [project.urls]
-Homepage = "https://github.com/koach-media/agentsift"
-Repository = "https://github.com/koach-media/agentsift"
-Issues = "https://github.com/koach-media/agentsift/issues"
+Homepage = "https://github.com/koach08/agentsift"
+Repository = "https://github.com/koach08/agentsift"
+Issues = "https://github.com/koach08/agentsift/issues"
 
 [tool.ruff]
 target-version = "py311"

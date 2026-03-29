@@ -6,12 +6,12 @@ Thank you for your interest in contributing to AgentSift! This project aims to m
 
 ### Reporting Bugs
 
-- Use the [Bug Report](https://github.com/koach-media/agentsift/issues/new?template=bug_report.md) issue template
+- Use the [Bug Report](https://github.com/koach08/agentsift/issues/new?template=bug_report.md) issue template
 - Include your Python version, OS, and steps to reproduce
 
 ### Suggesting Features
 
-- Use the [Feature Request](https://github.com/koach-media/agentsift/issues/new?template=feature_request.md) issue template
+- Use the [Feature Request](https://github.com/koach08/agentsift/issues/new?template=feature_request.md) issue template
 - Describe the security problem your feature would address
 
 ### Writing Detection Rules
@@ -55,7 +55,7 @@ ecosystems: [clawhub, mcp, npm, pypi]
 ## Development Setup
 
 ```bash
-git clone https://github.com/koach-media/agentsift.git
+git clone https://github.com/koach08/agentsift.git
 cd agentsift
 python -m venv .venv
 source .venv/bin/activate
