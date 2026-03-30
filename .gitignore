@@ -39,3 +39,6 @@ htmlcov/
 # Environment
 .env
 .env.local
+
+# Local announcements (not for repo)
+announcements/
