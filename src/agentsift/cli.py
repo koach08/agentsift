@@ -21,6 +21,7 @@ from agentsift.rules.engine import load_rules_dir
 from agentsift.scanners.clawhub import ClawHubScanner
 from agentsift.scanners.local import LocalScanner
 from agentsift.scanners.npm import NpmScanner
+from agentsift.scanners.pypi import PyPIScanner
 from agentsift.scanners.registry import parse_target
 
 console = Console()
@@ -181,6 +182,12 @@ def scan(
             if skill_meta and not clawhub_package_info.get("description"):
                 clawhub_package_info["description"] = skill_meta.get("description", "")
         console.print(f"  Downloaded {package_name}@{version}")
+    elif ecosystem in (Ecosystem.PYPI, Ecosystem.MCP_PYPI):
+        console.print(f"  Fetching {package_name} from PyPI...")
+        with PyPIScanner() as pypi:
+            temp_dir, scan_dir, meta, version = pypi.download_and_extract(package_name)
+            npm_package_info = pypi.extract_package_info(meta, version)
+        console.print(f"  Downloaded {package_name}@{version}")
     else:
         console.print(f"[yellow]Registry scanning for {ecosystem.value} is not yet implemented.[/yellow]")
         console.print(f"[dim]For now, use a local path: agentsift scan ./path/to/plugin/[/dim]")
@@ -202,9 +209,9 @@ def scan(
         static = StaticAnalyzer(extra_rules=extra_rules)
         findings = static.analyze(files, scan_dir)
 
-        # Run metadata analyzer for npm packages
+        # Run metadata analyzer for registry packages
         analyzers_used = ["static"]
-        if npm_package_info:
+        if npm_package_info and ecosystem in (Ecosystem.NPM, Ecosystem.MCP_NPM):
             meta_analyzer = MetadataAnalyzer()
             findings.extend(meta_analyzer.analyze_npm(npm_package_info))
             analyzers_used.append("metadata")
@@ -278,7 +285,174 @@ def scan(
 @click.option("-o", "--output", "output_file", type=click.Path(), help="Write SBOM to file")
 def sbom(target: str, sbom_format: str, output_file: str | None) -> None:
     """Generate Software Bill of Materials for an agent package."""
-    console.print(f"[yellow]SBOM generation not yet implemented[/yellow]")
+    from agentsift.reporters.cyclonedx import cyclonedx_to_json
+
+    console.print(f"[bold]AgentSift v{__version__}[/bold] -- SBOM for {target}\n")
+
+    start_time = time.time()
+    ecosystem, package_name, local_path = parse_target(target)
+
+    # First run a scan to get findings
+    temp_dir: Path | None = None
+    pkg_info: dict = {}
+    deps: list[dict] = []
+
+    if local_path:
+        scan_dir = local_path
+    elif ecosystem in (Ecosystem.NPM, Ecosystem.MCP_NPM):
+        with NpmScanner() as npm:
+            temp_dir, scan_dir, version_meta, version = npm.download_and_extract(package_name)
+            pkg_info = npm.extract_package_info(package_name, version_meta, version)
+            # Extract dependencies for SBOM
+            raw_deps = pkg_info.get("dependencies", {})
+            deps = [{"name": k, "version": v} for k, v in raw_deps.items()]
+    elif ecosystem in (Ecosystem.PYPI, Ecosystem.MCP_PYPI):
+        with PyPIScanner() as pypi:
+            temp_dir, scan_dir, meta, version = pypi.download_and_extract(package_name)
+            pkg_info = pypi.extract_package_info(meta, version)
+            raw_deps = pkg_info.get("dependencies", [])
+            deps = [{"name": d.split(";")[0].split("<")[0].split(">")[0].split("=")[0].strip(), "version": "*"} for d in raw_deps if isinstance(d, str)]
+    else:
+        console.print(f"[yellow]SBOM for {ecosystem.value} not yet supported[/yellow]")
+        sys.exit(1)
+
+    try:
+        local_scanner = LocalScanner()
+        files = local_scanner.collect_files(scan_dir)
+        static = StaticAnalyzer()
+        findings = static.analyze(files, scan_dir)
+
+        package_info = PackageInfo(
+            name=package_name,
+            version=pkg_info.get("version"),
+            ecosystem=ecosystem,
+            author=pkg_info.get("author"),
+            description=pkg_info.get("description"),
+        )
+
+        result = ScanResult(
+            package=package_info,
+            findings=findings,
+            risk_score=static.calculate_risk_score(findings),
+            files_scanned=len(files),
+            scan_duration_ms=int((time.time() - start_time) * 1000),
+        )
+
+        if sbom_format == "spdx":
+            console.print("[yellow]SPDX format not yet implemented, using CycloneDX[/yellow]")
+
+        sbom_output = cyclonedx_to_json(result, deps)
+
+        if output_file:
+            Path(output_file).write_text(sbom_output)
+            console.print(f"  SBOM written to {output_file}")
+            console.print(f"  Components: {1 + len(deps)} | Vulnerabilities: {len(findings)}")
+        else:
+            click.echo(sbom_output)
+
+    finally:
+        if temp_dir and temp_dir.exists():
+            shutil.rmtree(temp_dir, ignore_errors=True)
+
+
+@main.command(name="list-rules")
+@click.option(
+    "--rules",
+    "rules_dir",
+    type=click.Path(exists=True, file_okay=False),
+    default=None,
+    help="Include custom rules from this directory",
+)
+def list_rules(rules_dir: str | None) -> None:
+    """List all available detection rules."""
+    from agentsift.analyzers.static import _RULES
+
+    all_rules = list(_RULES)
+    if rules_dir:
+        all_rules.extend(load_rules_dir(Path(rules_dir)))
+
+    table = Table(title="AgentSift Detection Rules", show_header=True, header_style="bold")
+    table.add_column("ID", width=10)
+    table.add_column("Name", width=30)
+    table.add_column("Severity", width=10)
+    table.add_column("Category", width=22)
+    table.add_column("Description", min_width=40)
+
+    for r in sorted(all_rules, key=lambda x: x.rule_id):
+        color = _severity_color(r.severity)
+        table.add_row(
+            r.rule_id,
+            r.name,
+            f"[{color}]{r.severity.value.upper()}[/{color}]",
+            r.category.value,
+            r.description,
+        )
+
+    console.print(table)
+    console.print(f"\n  Total: {len(all_rules)} rules")
+
+
+@main.command()
+@click.argument("targets", nargs=-1, required=True)
+@click.option("--format", "output_format", type=click.Choice(["human", "json"]), default="human")
+@click.option(
+    "--fail-on",
+    type=click.Choice(["critical", "high", "medium", "low"]),
+    default=None,
+)
+def batch(targets: tuple[str, ...], output_format: str, fail_on: str | None) -> None:
+    """Scan multiple packages at once.
+
+    Example: agentsift batch npm:pkg-a npm:pkg-b clawhub:skill-c
+    """
+    console.print(f"[bold]AgentSift v{__version__}[/bold] -- Batch scan ({len(targets)} targets)\n")
+
+    results: list[dict] = []
+    has_failure = False
+
+    for i, target in enumerate(targets, 1):
+        console.print(f"  [{i}/{len(targets)}] Scanning {target}...")
+        try:
+            # Invoke scan programmatically by simulating CLI
+            from click.testing import CliRunner
+            runner = CliRunner(mix_stderr=False)
+            args = ["scan", target, "--format", "json"]
+            rv = runner.invoke(main, args, catch_exceptions=False)
+
+            if rv.exit_code == 0 and rv.output.strip():
+                import json
+                result_data = json.loads(rv.output)
+                results.append({"target": target, "status": "ok", "result": result_data})
+                score = result_data.get("risk_score", {}).get("score", 0)
+                label = result_data.get("risk_score", {}).get("label", "unknown")
+                findings_count = len(result_data.get("findings", []))
+                color = _risk_color(score)
+                console.print(f"    [{color}]Score: {score}/100 ({label})[/{color}] | {findings_count} finding(s)")
+            else:
+                results.append({"target": target, "status": "error", "error": rv.output or "scan failed"})
+                console.print(f"    [red]Error[/red]")
+        except Exception as e:
+            results.append({"target": target, "status": "error", "error": str(e)})
+            console.print(f"    [red]Error: {e}[/red]")
+
+    # Summary
+    console.print(f"\n  [bold]Batch complete:[/bold] {len(results)} packages scanned")
+
+    if output_format == "json":
+        import json
+        click.echo(json.dumps(results, indent=2))
+
+    # Exit code
+    if fail_on:
+        severity_order = ["critical", "high", "medium", "low"]
+        threshold = severity_order.index(fail_on)
+        for r in results:
+            if r.get("status") != "ok":
+                continue
+            for finding in r.get("result", {}).get("findings", []):
+                sev = finding.get("severity", "info")
+                if sev in severity_order and severity_order.index(sev) <= threshold:
+                    sys.exit(1)
 
 
 if __name__ == "__main__":

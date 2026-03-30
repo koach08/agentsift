@@ -1,0 +1,111 @@
+name: "AgentSift Security Scan"
+description: "Scan AI agent plugins, MCP packages, and ClawHub skills for security issues"
+author: "AgentSift Contributors"
+
+branding:
+  icon: "shield"
+  color: "blue"
+
+inputs:
+  targets:
+    description: "Space-separated list of targets to scan (e.g., 'npm:@mcp/server-x clawhub:skill-y')"
+    required: false
+    default: ""
+  target-file:
+    description: "Path to a file containing targets (one per line)"
+    required: false
+    default: ""
+  path:
+    description: "Local directory path to scan"
+    required: false
+    default: ""
+  fail-on:
+    description: "Fail if findings at or above this severity (critical, high, medium, low)"
+    required: false
+    default: "high"
+  rules:
+    description: "Path to custom YAML rules directory"
+    required: false
+    default: ""
+  format:
+    description: "Output format (human, json, sarif)"
+    required: false
+    default: "sarif"
+  sarif-file:
+    description: "Path to write SARIF output"
+    required: false
+    default: "agentsift-results.sarif"
+
+outputs:
+  risk-score:
+    description: "Highest risk score across all scanned targets"
+  findings-count:
+    description: "Total number of findings"
+  sarif-file:
+    description: "Path to SARIF output file"
+
+runs:
+  using: "composite"
+  steps:
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.12"
+
+    - name: Install AgentSift
+      shell: bash
+      run: pip install agentsift
+
+    - name: Scan targets
+      shell: bash
+      run: |
+        ARGS=""
+
+        # Add custom rules if provided
+        if [ -n "${{ inputs.rules }}" ]; then
+          ARGS="$ARGS --rules ${{ inputs.rules }}"
+        fi
+
+        # Scan local path
+        if [ -n "${{ inputs.path }}" ]; then
+          agentsift scan ${{ inputs.path }} \
+            --format ${{ inputs.format }} \
+            -o ${{ inputs.sarif-file }} \
+            --fail-on ${{ inputs.fail-on }} \
+            $ARGS
+          exit $?
+        fi
+
+        # Scan from target list
+        TARGETS="${{ inputs.targets }}"
+
+        # Read from file if provided
+        if [ -n "${{ inputs.target-file }}" ] && [ -f "${{ inputs.target-file }}" ]; then
+          TARGETS="$TARGETS $(cat ${{ inputs.target-file }} | tr '\n' ' ')"
+        fi
+
+        if [ -z "$TARGETS" ]; then
+          echo "Error: No targets specified. Use 'targets', 'target-file', or 'path' input."
+          exit 1
+        fi
+
+        # Scan each target
+        EXIT_CODE=0
+        for target in $TARGETS; do
+          echo "::group::Scanning $target"
+          agentsift scan "$target" \
+            --format ${{ inputs.format }} \
+            -o "${{ inputs.sarif-file }}" \
+            --fail-on ${{ inputs.fail-on }} \
+            $ARGS || EXIT_CODE=$?
+          echo "::endgroup::"
+        done
+
+        exit $EXIT_CODE
+
+    - name: Upload SARIF
+      if: always() && inputs.format == 'sarif'
+      uses: github/codeql-action/upload-sarif@v3
+      with:
+        sarif_file: ${{ inputs.sarif-file }}
+      continue-on-error: true
