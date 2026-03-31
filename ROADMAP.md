@@ -1,23 +1,23 @@
 # AgentSift Roadmap
 
-## v0.1.0 -- Foundation (Current)
+## v0.1.0 -- Foundation
 
 - [x] Project structure and CLI skeleton
-- [ ] Static analysis engine with built-in detection rules
-- [ ] ClawHub skill scanner
-- [ ] MCP npm package scanner
-- [ ] Local directory scanner
-- [ ] JSON and human-readable output
-- [ ] Basic risk scoring (0-100)
+- [x] Static analysis engine with built-in detection rules
+- [x] ClawHub skill scanner
+- [x] MCP npm package scanner
+- [x] Local directory scanner
+- [x] JSON and human-readable output
+- [x] Basic risk scoring (0-100)
 
-## v0.2.0 -- Depth
+## v0.2.0 -- Depth (Current)
 
-- [ ] Behavioral sandbox (container-based execution monitoring)
-- [ ] SARIF output for CI/CD integration
-- [ ] PyPI MCP package scanner
-- [ ] SBOM generation (CycloneDX format)
-- [ ] Custom YAML detection rules
-- [ ] GitHub Actions integration
+- [x] Behavioral sandbox (container-based execution monitoring via strace)
+- [x] SARIF output for CI/CD integration
+- [x] PyPI MCP package scanner
+- [x] SBOM generation (CycloneDX format)
+- [x] Custom YAML detection rules
+- [x] GitHub Actions integration
 
 ## v0.3.0 -- Intelligence
 

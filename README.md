@@ -114,13 +114,24 @@ Scans source code for patterns known to be associated with malicious AI agent pl
 
 ### Behavioral Sandbox
 
-Executes the plugin in an isolated container and monitors:
+Executes the plugin in an isolated Docker container under `strace` and monitors:
 
-- System calls (via seccomp-bpf)
-- Network connections (DNS queries, HTTP requests, raw sockets)
-- File system access (reads, writes, deletes outside expected paths)
-- Process spawning (unexpected child processes)
-- Resource consumption (CPU, memory, disk anomalies)
+- **File access** -- Reads of SSH keys, AWS/GCP/Azure credentials, crypto wallets, browser stores, `/etc/shadow`, `/proc/self/environ`
+- **Network connections** -- Outbound `connect()` calls to non-loopback addresses (IP and port reported)
+- **Process spawning** -- Execution of `curl`, `wget`, `nc`, `ssh`, shell commands with `-c` flag, `chmod`/`base64`
+- **Timeout detection** -- Packages that hang or stall (potential anti-analysis)
+
+```bash
+# Install sandbox dependencies
+pip install agentsift[sandbox]
+
+# Run with behavioral analysis
+agentsift scan --deep clawhub:suspicious-skill
+
+# Sandbox findings are integrated into the same risk score and report
+```
+
+Container isolation: read-only package mount, 256MB memory limit, 50% CPU cap, unprivileged user, no network by default.
 
 ### Reputation Scoring
 

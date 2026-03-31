@@ -217,7 +217,22 @@ def scan(
             analyzers_used.append("metadata")
 
         if deep:
-            console.print("  [yellow]Behavioral sandbox not yet implemented[/yellow]")
+            try:
+                from agentsift.analyzers.sandbox import SandboxAnalyzer
+
+                console.print("  Running behavioral sandbox analysis...")
+                sandbox = SandboxAnalyzer()
+                sandbox_findings = sandbox.analyze(scan_dir, ecosystem)
+                findings.extend(sandbox_findings)
+                analyzers_used.append("sandbox")
+                if sandbox_findings:
+                    console.print(
+                        f"  Sandbox detected [red]{len(sandbox_findings)}[/red] behavioral issue(s)"
+                    )
+                else:
+                    console.print("  [green]Sandbox: no suspicious runtime behavior[/green]")
+            except RuntimeError as e:
+                console.print(f"  [yellow]Sandbox: {e}[/yellow]")
 
         elapsed_ms = int((time.time() - start_time) * 1000)
 
