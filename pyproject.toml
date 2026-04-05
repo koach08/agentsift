@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "agentsift"
-version = "0.1.0"
+version = "0.2.0"
 description = "Security scanner for AI agent plugins, skills, and MCP packages"
 readme = "README.md"
 license = "Apache-2.0"

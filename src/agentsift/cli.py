@@ -16,6 +16,7 @@ from agentsift import __version__
 from agentsift.models import Ecosystem, PackageInfo, ScanResult, Severity
 from agentsift.analyzers.metadata import MetadataAnalyzer
 from agentsift.analyzers.static import StaticAnalyzer
+from agentsift.ignore import load_ignore_config
 from agentsift.reporters.sarif import sarif_to_json
 from agentsift.rules.engine import load_rules_dir
 from agentsift.scanners.clawhub import ClawHubScanner
@@ -137,6 +138,12 @@ def main() -> None:
     default=None,
     help="Directory containing custom YAML detection rules",
 )
+@click.option(
+    "--ignore-rules",
+    "ignore_rules",
+    multiple=True,
+    help="Rule IDs to ignore (comma-separated, repeatable). E.g. --ignore-rules AS-001,AS-010",
+)
 def scan(
     target: str,
     deep: bool,
@@ -144,6 +151,7 @@ def scan(
     output_file: str | None,
     fail_on: str | None,
     rules_dir: str | None,
+    ignore_rules: tuple[str, ...],
 ) -> None:
     """Scan an AI agent package for security issues.
 
@@ -233,6 +241,17 @@ def scan(
                     console.print("  [green]Sandbox: no suspicious runtime behavior[/green]")
             except RuntimeError as e:
                 console.print(f"  [yellow]Sandbox: {e}[/yellow]")
+
+        # Apply ignore / whitelist rules
+        ignore_config = load_ignore_config(
+            scan_dir=scan_dir,
+            ignore_rules=list(ignore_rules) if ignore_rules else None,
+        )
+        ignored_count = len(findings)
+        findings = ignore_config.filter_findings(findings)
+        ignored_count -= len(findings)
+        if ignored_count > 0:
+            console.print(f"  [dim]Suppressed {ignored_count} finding(s) via ignore rules[/dim]")
 
         elapsed_ms = int((time.time() - start_time) * 1000)
 

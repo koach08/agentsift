@@ -66,6 +66,30 @@ agentsift scan --format sarif -o results.sarif clawhub:some-skill
 agentsift sbom --format cyclonedx clawhub:some-skill
 ```
 
+## Suppressing False Positives
+
+Use a `.agentsift-ignore` file or CLI flags to suppress known false positives:
+
+```bash
+# Ignore specific rules via CLI
+agentsift scan --ignore-rules AS-021,AS-022 ./my-plugin/
+
+# Or place a .agentsift-ignore file in the scan directory
+```
+
+`.agentsift-ignore` format:
+
+```
+# Ignore specific rule IDs
+rule:AS-021
+rule:AS-010,AS-011
+
+# Ignore files by glob pattern
+file:vendor/**
+file:tests/**
+file:*.test.js
+```
+
 ## Supported Ecosystems
 
 | Ecosystem | Status | Description |
